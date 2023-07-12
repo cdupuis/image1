@@ -1,0 +1,89 @@
+name: Docker
+
+on:
+  pull_request:
+    branches: ["main"]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+
+  Scout:
+    if: github.event_name == 'pull_request'
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: write
+
+    steps:
+
+      -
+        name: Checkout
+        uses: actions/checkout@v3
+
+      -
+        name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v2.9.0
+
+      -
+        name: Extract Metadata
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=auto
+
+      -
+        name: Build Scout Image
+        id: build
+        uses: docker/build-push-action@v4
+        if: ${{ github.event_name == 'pull_request' }}
+        with:
+          platforms: linux/amd64
+          context: ./app
+          load: true
+          # push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      -
+        name: Docker Scout
+        id: docker-scout
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: docker/scout-action@v0.18.1
+        with:
+          command: recommendations
+          image: ${{ steps.meta.outputs.tags }}
+          only-severities: critical,high
+          write-comment: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Analyze for critical and high CVEs
+        id: docker-scout-cves
+        # if: ${{ github.event_name != 'pull_request_target' }}
+        # Version that supports Sarif File Output
+        uses: docker/scout-action@main
+        with:
+          command: cves
+          write-comment: false
+          image: ${{ steps.meta.outputs.tags }}
+          sarif-file: ./sarif.output.json.sarif
+          summary: true
+
+      - name: Print Sarif File
+        run: cat ./sarif.output.json.sarif
+      
+      - name: Upload SARIF result
+        id: upload-sarif
+        # if: ${{ github.event_name != 'pull_request_target' }}
+        uses: github/codeql-action/upload-sarif@v1
+        with:
+          sarif_file: ./sarif.output.json.sarif
