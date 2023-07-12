@@ -46,7 +46,7 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }}
         with:
           platforms: linux/amd64
-          context: ./app
+          context: .
           load: true
           # push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
